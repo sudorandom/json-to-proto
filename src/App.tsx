@@ -1,5 +1,12 @@
 import { useState, useCallback } from 'react';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import atelierSulphurpoolDark from 'react-syntax-highlighter/dist/esm/styles/hljs/atelier-sulphurpool-dark';
+import jsonLang from 'react-syntax-highlighter/dist/esm/languages/hljs/json';
+import protobufLang from 'react-syntax-highlighter/dist/esm/languages/hljs/protobuf';
+SyntaxHighlighter.registerLanguage('json', jsonLang);
+SyntaxHighlighter.registerLanguage('protobuf', protobufLang);
 import { Play, Copy } from 'lucide-react';
+// ...existing code...
 
 // --- Helper Functions ---
 
@@ -216,18 +223,17 @@ export default function App() {
     };
 
     return (
-        <div className="bg-gray-900 text-white min-h-screen font-sans flex flex-col antialiased">
-            <header className="bg-gray-800/70 backdrop-blur-sm border-b border-gray-700 p-4 sticky top-0 z-10">
-                <h1 className="text-2xl font-bold text-center text-cyan-400">JSON to Protobuf Converter</h1>
-                <p className="text-center text-gray-400 mt-1">Client-side conversion using TypeScript.</p>
+        <div className="min-h-screen font-sans flex flex-col antialiased bg-gradient-to-br from-gray-950 via-gray-900 to-cyan-950">
+            <header className="bg-gray-900/80 backdrop-blur border-b border-cyan-900 p-6 shadow-lg">
+                <h1 className="text-4xl font-extrabold text-center text-cyan-400 drop-shadow-lg tracking-tight">JSON to Protobuf Converter</h1>
             </header>
 
-            <main className="flex-grow grid grid-cols-1 lg:grid-cols-11 gap-4 p-4">
+            <main className="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-8 p-6 relative pb-56">
                 {/* Input Panel */}
-                <div className="lg:col-span-5 flex flex-col bg-gray-800 rounded-lg border border-gray-700 shadow-2xl">
-                    <div className="p-4 border-b border-gray-700">
-                        <label htmlFor="baseName" className="block text-sm font-medium text-gray-300 mb-2">
-                            Base Message Name (Optional)
+                <div className="flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-cyan-950 rounded-2xl border border-cyan-900 shadow-2xl z-10 mr-15">
+                    <div className="p-6 border-b border-cyan-900">
+                        <label htmlFor="baseName" className="block text-base font-semibold text-cyan-300 mb-2 tracking-wide">
+                            Base Message Name <span className="text-gray-400 font-normal">(Optional)</span>
                         </label>
                         <input
                             id="baseName"
@@ -235,61 +241,82 @@ export default function App() {
                             value={baseName}
                             onChange={(e) => setBaseName(e.target.value)}
                             placeholder="e.g., UserProfile"
-                            className="w-full bg-gray-900 text-white border border-gray-600 rounded-md p-2 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition"
+                            className="w-full bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-3 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500"
                         />
                     </div>
-                    <div className="flex-grow flex flex-col">
-                         <label htmlFor="jsonInput" className="block text-sm font-medium text-gray-300 p-4 pb-2">
+                    <div className="flex-grow flex flex-col overflow-hidden">
+                        <label htmlFor="jsonInput" className="block text-base font-semibold text-cyan-300 px-6 pt-6 pb-2 tracking-wide">
                             JSON Input
                         </label>
-                        <textarea
-                            id="jsonInput"
-                            value={jsonInput}
-                            onChange={(e) => setJsonInput(e.target.value)}
-                            className="flex-grow bg-gray-800 text-white p-4 rounded-b-lg focus:outline-none resize-none font-mono text-sm"
-                            placeholder='{ "key": "value" }'
-                            spellCheck="false"
-                        />
+                         <div className="flex-grow rounded-b-2xl overflow-hidden border-t border-cyan-900 flex flex-col">
+                            <textarea
+                                id="jsonInput"
+                                value={jsonInput}
+                                onChange={e => setJsonInput(e.target.value)}
+                                className="w-full flex-grow bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-4 font-mono text-base focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500 resize-none"
+                                placeholder="Paste or type your JSON here..."
+                                spellCheck={false}
+                                style={{
+                                    fontSize: '1rem',
+                                    borderRadius: '0.75rem',
+                                    padding: '1rem',
+                                    background: 'transparent',
+                                }}
+                            />
+                        </div>
                     </div>
                 </div>
 
                 {/* Center Control */}
-                <div className="flex justify-center items-center lg:col-span-1">
+                <div className="flex justify-center items-center lg:absolute lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 z-20 pointer-events-none" style={{paddingBottom: '8rem'}}>
                     <button
                         onClick={handleConvert}
                         disabled={isLoading}
-                        className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg"
+                        className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-4 px-8 rounded-full transition-all duration-300 ease-in-out transform hover:scale-110 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center gap-3 shadow-xl text-lg tracking-wide pointer-events-auto"
+                        style={{marginBottom: '5rem'}}
                     >
                         {isLoading ? (
-                            <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
+                            <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-white"></div>
                         ) : (
-                            <Play size={20} />
+                            <Play size={24} />
                         )}
                         <span>{isLoading ? 'Converting...' : 'Convert'}</span>
                     </button>
                 </div>
 
                 {/* Output Panel */}
-                <div className="lg:col-span-5 flex flex-col bg-gray-800 rounded-lg border border-gray-700 shadow-2xl">
-                    <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                        <h2 className="text-lg font-semibold text-gray-300">Protobuf Output</h2>
+                <div className="flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-cyan-950 rounded-2xl border border-cyan-900 shadow-2xl z-10 ml-15">
+                    <div className="p-6 border-b border-cyan-900 flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-cyan-300 tracking-wide">Protobuf Output</h2>
                         <button
                             onClick={handleCopy}
                             disabled={!protoOutput}
-                            className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-1 px-3 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition"
+                            className="bg-cyan-700 hover:bg-cyan-600 text-white font-semibold py-2 px-4 rounded-lg text-base disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition shadow-md"
                         >
-                           <Copy size={16} />
+                           <Copy size={18} />
                            {copySuccess ? 'Copied!' : 'Copy'}
                         </button>
                     </div>
-                    <div className="flex-grow bg-gray-900 rounded-b-lg p-4 font-mono text-sm">
-                        {error && <div className="text-red-400 bg-red-900/50 p-3 rounded-md mb-4 whitespace-pre-wrap">{error}</div>}
-                        <pre className="whitespace-pre-wrap break-all h-full overflow-auto">
-                            <code>{protoOutput || "// Your generated .proto file will appear here"}</code>
-                        </pre>
+                    <div className="flex-grow rounded-b-2xl overflow-hidden border-t border-cyan-900">
+                        <SyntaxHighlighter
+                            language="protobuf"
+                            style={atelierSulphurpoolDark}
+                            customStyle={{
+                                background: 'transparent',
+                                fontSize: '1rem',
+                                borderRadius: '0.75rem',
+                                padding: '1rem',
+                                minHeight: '200px',
+                            }}
+                            showLineNumbers
+                        >
+                            {error ? error : (protoOutput || "// Your generated .proto file will appear here")}
+                        </SyntaxHighlighter>
                     </div>
                 </div>
             </main>
+            <footer className="text-center py-6 text-gray-500 text-sm bg-gray-900/80 border-t border-cyan-900 mt-8">
+            </footer>
         </div>
     );
 }
