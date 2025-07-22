@@ -48,6 +48,8 @@ export class ProtoGenerator {
     // Removed duplicate imports property
     private messageCache: Map<string, string> = new Map();
 
+    constructor(private config: { packageName?: string } = {}) {}
+
     /**
      * Recursively generates a message definition from a JSON object or merged field values.
      */
@@ -298,7 +300,9 @@ export class ProtoGenerator {
             }
         }
 
-        const packageName = baseMessageName ? toSnakeCase(baseMessageName) : '';
+        const packageName = this.config.packageName !== undefined
+          ? this.config.packageName
+          : (baseMessageName ? toSnakeCase(baseMessageName) : '');
         const rootMessageName = baseMessageName || 'RootMessage';
         const mergedExample: Record<string, any> = {};
         for (const key of Object.keys(fieldValues)) {
@@ -339,6 +343,7 @@ export default function App() {
         "mixed_data": [1, "test", true, {"key": "value"}]
     }, null, 2));
     const [baseName, setBaseName] = useState('UserProfile');
+    const [packageName, setPackageName] = useState('my_package');
     const [protoOutput, setProtoOutput] = useState('');
     const [warnings, setWarnings] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -357,7 +362,7 @@ export default function App() {
 
         setTimeout(() => {
             try {
-                const generator = new ProtoGenerator();
+                const generator = new ProtoGenerator({ packageName });
                 const resultObj = generator.generate(jsonInput, baseName);
                 if(resultObj.proto.startsWith('Error:')) {
                     setError(resultObj.proto);
@@ -373,7 +378,7 @@ export default function App() {
                 setIsLoading(false);
             }
         }, 500);
-    }, [jsonInput, baseName]);
+    }, [jsonInput, baseName, packageName]);
 
     const handleCopy = () => {
         if (!protoOutput) return;
@@ -392,19 +397,32 @@ export default function App() {
             <main className="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-8 p-6 relative pb-56">
                 {/* Input Panel */}
                 <div className="flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-cyan-950 rounded-2xl border border-cyan-900 shadow-2xl z-10 mr-15">
-                    <div className="p-6 border-b border-cyan-900">
-                        <label htmlFor="baseName" className="block text-base font-semibold text-cyan-300 mb-2 tracking-wide">
-                            Base Message Name <span className="text-gray-400 font-normal">(Optional)</span>
-                        </label>
-                        <input
-                            id="baseName"
-                            type="text"
-                            value={baseName}
-                            onChange={(e) => setBaseName(e.target.value)}
-                            placeholder="e.g., UserProfile"
-                            className="w-full bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-3 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500"
-                        />
-                    </div>
+                    <div className="p-6 border-b border-cyan-900 flex gap-2 items-center">
+                    <label htmlFor="packageName" className="text-base font-semibold text-cyan-300 tracking-wide whitespace-nowrap">
+                        Package Name
+                    </label>
+                    <input
+                        id="packageName"
+                        type="text"
+                        value={packageName}
+                        onChange={(e) => setPackageName(e.target.value)}
+                        placeholder="e.g., my_package"
+                        className="flex-1 bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500"
+                    />
+                </div>
+                <div className="p-6 border-b border-cyan-900 flex gap-2 items-center">
+                    <label htmlFor="baseName" className="text-base font-semibold text-cyan-300 tracking-wide whitespace-nowrap">
+                        Base Message Name
+                    </label>
+                    <input
+                        id="baseName"
+                        type="text"
+                        value={baseName}
+                        onChange={(e) => setBaseName(e.target.value)}
+                        placeholder="e.g., UserProfile"
+                        className="flex-1 bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500"
+                    />
+                </div>
                     <div className="flex-grow flex flex-col overflow-hidden">
                         <label htmlFor="jsonInput" className="block text-base font-semibold text-cyan-300 px-6 pt-6 pb-2 tracking-wide">
                             JSON Input
