@@ -6,7 +6,6 @@ import protobufLang from 'react-syntax-highlighter/dist/esm/languages/hljs/proto
 SyntaxHighlighter.registerLanguage('json', jsonLang);
 SyntaxHighlighter.registerLanguage('protobuf', protobufLang);
 import { Play, Copy } from 'lucide-react';
-import React from 'react';
 
 // --- Helper Functions ---
 
@@ -48,7 +47,11 @@ export class ProtoGenerator {
     // Removed duplicate imports property
     private messageCache: Map<string, string> = new Map();
 
-    constructor(private config: { packageName?: string } = {}) {}
+    // Avoid using parameter properties in constructor due to TS1294 error
+    private config: { packageName?: string };
+    constructor(config: { packageName?: string } = {}) {
+        this.config = config;
+    }
 
     /**
      * Recursively generates a message definition from a JSON object or merged field values.
