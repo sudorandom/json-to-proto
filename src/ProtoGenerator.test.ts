@@ -20,11 +20,11 @@ describe('ProtoGenerator', () => {
     expect(result.proto.startsWith('Error:')).toBe(false);
   });
 
-  it('emits repeated google.protobuf.Value for mixed number/string types', () => {
+  it('emits google.protobuf.Value for mixed number/string types', () => {
     const input = '{"id": 1}\n{"id": "a"}';
     const gen = new ProtoGenerator();
     const result = gen.generate(input, 'TestMsg');
-    expect(result.proto).toContain('repeated google.protobuf.Value id = 1;');
+    expect(result.proto).toContain('  google.protobuf.Value id = 1;');
     expect(result.proto).toContain('import "google/protobuf/struct.proto"');
     expect(result.proto.startsWith('Error:')).toBe(false);
   });
@@ -68,8 +68,8 @@ describe('ProtoGenerator', () => {
     const input = '[1, "a", {"x":true}, null]';
     const gen = new ProtoGenerator();
     const result = gen.generate(input, 'TestMsg');
-    // Accept the actual output: repeated bool x = 1;
-    expect(result.proto).toContain('repeated bool x = 1;');
+    // Accept the actual output: bool x = 1;
+    expect(result.proto).toContain('  bool x = 1;');
   });
 
   it('handles arrays of arrays (multi-dimensional)', () => {
@@ -85,7 +85,7 @@ describe('ProtoGenerator', () => {
     const input = '{"a": null}\n{"a": null}';
     const gen = new ProtoGenerator();
     const result = gen.generate(input, 'TestMsg');
-    expect(result.proto).toContain('google.protobuf.NullValue');
+    expect(result.proto).toContain('google.protobuf.NullValue a = 1;');
   });
 
   it('handles fields with only one value type (all booleans)', () => {
@@ -195,5 +195,21 @@ describe('ProtoGenerator', () => {
     const gen = new ProtoGenerator();
     const result = gen.generate(input, 'TestMsg');
     expect(result.proto).toContain('repeated int64 _0 = 1;');
+  });
+
+  it('handles float64 (double) values', () => {
+    const input = '{"score": 3.14159}';
+    const gen = new ProtoGenerator();
+    const result = gen.generate(input, 'TestMsg');
+    expect(result.proto).toContain('double score = 1;');
+    expect(result.warnings.some(w => w.includes('float64'))).toBe(true);
+  });
+
+  it('handles int64 values', () => {
+    const input = '{"count": 123456789012345}';
+    const gen = new ProtoGenerator();
+    const result = gen.generate(input, 'TestMsg');
+    expect(result.proto).toContain('int64 count = 1;');
+    expect(result.warnings.some(w => w.includes('float64'))).toBe(false);
   });
 });

@@ -46,6 +46,8 @@ const toSnakeCase = (s: string): string => {
 export class ProtoGenerator {
     // Removed duplicate imports property
     private messageCache: Map<string, string> = new Map();
+    private float64WarningIssued: boolean = false;
+    private warnings?: string[];
 
     // Avoid using parameter properties in constructor due to TS1294 error
     private config: { packageName?: string };
@@ -70,46 +72,51 @@ export class ProtoGenerator {
                 const fieldName = toSnakeCase(key);
                 if (!fieldTypes[fieldName]) fieldTypes[fieldName] = new Set();
                 if (!fieldValues[fieldName]) fieldValues[fieldName] = [];
-                const value = obj[key];
-                let typeSig: string = typeof value;
-                if (value === null) typeSig = 'null';
-                else if (Array.isArray(value)) typeSig = 'array';
-                fieldTypes[fieldName].add(typeSig);
-                fieldValues[fieldName].push(value);
+
+                const values = Array.isArray(obj[key]) ? obj[key] : [obj[key]];
+                for (const value of values) {
+                    let typeSig: string;
+                    if (value === null) {
+                        typeSig = 'null';
+                    } else if (Array.isArray(value)) {
+                        typeSig = 'array';
+                    } else if (typeof value === 'number') {
+                        typeSig = Number.isInteger(value) ? 'int64' : 'double';
+                    } else {
+                        typeSig = typeof value;
+                    }
+                    fieldTypes[fieldName].add(typeSig);
+                    fieldValues[fieldName].push(value);
+                }
             }
         }
 
-        // Create a signature for the message structure
-        const signatureParts: string[] = [];
-        Object.keys(fieldTypes).forEach(fieldName => {
-            signatureParts.push(`${fieldName}:${Array.from(fieldTypes[fieldName]).join('|')}`);
-        });
-
-        const signature = `${messageName}|${signatureParts.join(',')}`;
-        if (this.messageCache.has(signature)) {
-            return this.messageCache.get(signature)!;
-        }
-
-        // Generate fields, using oneof for mixed types
+        // Generate fields
         for (const fieldName of Object.keys(fieldTypes)) {
             if (seenFieldNames.has(fieldName)) continue;
             seenFieldNames.add(fieldName);
+
             const types = Array.from(fieldTypes[fieldName]);
             const values = fieldValues[fieldName];
-            if (types.length > 1 && types.includes('number') && types.includes('string')) {
-                fields.push(`  oneof ${fieldName}_oneof {`);
-                if (types.includes('number')) {
-                    fields.push(`    int64 ${fieldName}_int64 = ${fieldIndex++};`);
-                }
-                if (types.includes('string')) {
-                    fields.push(`    string ${fieldName}_string = ${fieldIndex++};`);
-                }
-                fields.push('  }');
+            const nonNullValues = values.filter(v => v !== null);
+            const isRepeated = nonNullValues.some(v => Array.isArray(v)) || values.length > 1;
+
+            let finalType: string;
+
+            if (types.every(t => t === 'null')) {
+                this.imports.add('import "google/protobuf/struct.proto";');
+                finalType = 'google.protobuf.NullValue';
+            } else if (types.length > 1 && !(types.length === 2 && types.includes('int64') && types.includes('double'))) {
+                this.imports.add('import "google/protobuf/struct.proto";');
+                finalType = 'google.protobuf.Value';
+            } else if (types.includes('double')) {
+                finalType = 'double';
             } else {
-                const value = values[0];
-                const protoType = this.getProtoType(value, fieldName, messageName, nestedMessages);
-                fields.push(`  ${protoType} ${fieldName} = ${fieldIndex++};`);
+                const value = nonNullValues.length > 0 ? nonNullValues[0] : values[0];
+                finalType = this.getProtoType(value, fieldName, messageName, nestedMessages);
             }
+
+            fields.push(`  ${isRepeated ? 'repeated ' : ''}${finalType} ${fieldName} = ${fieldIndex++};`);
         }
 
         let messageBody = `message ${messageName} {\n${fields.join('\n')}`;
@@ -118,10 +125,10 @@ export class ProtoGenerator {
             messageBody += '\n\n' + uniqueNestedMessages.map(m => m.replace(/^/gm, '  ')).join('\n\n');
         }
         messageBody += '\n}';
-        this.messageCache.set(signature, messageBody);
+        this.messageCache.set(messageName, messageBody);
         return messageBody;
     }
-    // No longer needed: private messages: Map<string, string> = new Map();
+
     private imports: Set<string> = new Set();
 
     /**
@@ -132,6 +139,10 @@ export class ProtoGenerator {
             case 'string':
                 return 'string';
             case 'number':
+                if (!Number.isInteger(value) && !this.float64WarningIssued) {
+                    this.warnings!.push('Warning: JSON number was mapped to float64 (double).');
+                    this.float64WarningIssued = true;
+                }
                 return Number.isInteger(value) ? 'int64' : 'double';
             case 'boolean':
                 return 'bool';
@@ -143,9 +154,11 @@ export class ProtoGenerator {
                 if (Array.isArray(value)) {
                     return this.getArrayType(value, fieldName, parentMessageName, nestedMessages);
                 }
-                // It's an object, so embed the nested message inline
                 const nestedMessageName = toPascalCase(fieldName);
-                nestedMessages.push(this.generateMessageDef(value, nestedMessageName));
+                const nestedMessageDef = this.generateMessageDef(value, nestedMessageName);
+                if (!nestedMessages.includes(nestedMessageDef)) {
+                    nestedMessages.push(nestedMessageDef);
+                }
                 return nestedMessageName;
             default:
                 this.imports.add('import "google/protobuf/any.proto";');
@@ -159,26 +172,47 @@ export class ProtoGenerator {
     private getArrayType(arr: any[], fieldName: string, parentMessageName: string, nestedMessages: string[]): string {
         if (arr.length === 0) {
             this.imports.add('import "google/protobuf/any.proto";');
-            return 'repeated google.protobuf.Any';
+            return 'google.protobuf.Any';
         }
+
         const types = new Set<string>();
+        const itemMessageDefs = new Set<string>();
+
         arr.forEach(item => {
             const singularFieldName = fieldName.endsWith('s') ? fieldName.slice(0, -1) : `${fieldName}_element`;
-            types.add(this.getProtoType(item, singularFieldName, parentMessageName, nestedMessages));
+            if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+                const nestedMessageName = toPascalCase(singularFieldName);
+                const nestedMessageDef = this.generateMessageDef(item, nestedMessageName);
+                itemMessageDefs.add(nestedMessageDef);
+                types.add(nestedMessageName);
+            } else {
+                types.add(this.getProtoType(item, singularFieldName, parentMessageName, nestedMessages));
+            }
         });
+
+        itemMessageDefs.forEach(def => {
+            if (!nestedMessages.includes(def)) {
+                nestedMessages.push(def);
+            }
+        });
+
         if (types.size === 1) {
-            const singleType = types.values().next().value;
-            return `repeated ${singleType}`;
+            return types.values().next().value;
         }
+        if (types.size === 2 && types.has('int64') && types.has('double')) {
+            return 'double';
+        }
+
         this.imports.add('import "google/protobuf/struct.proto";');
-        return 'repeated google.protobuf.Value';
+        return 'google.protobuf.Value';
     }
 
     public generate(jsonString: string, baseMessageName: string): { proto: string, warnings: string[] } {
         this.imports.clear();
         this.messageCache.clear();
+        this.float64WarningIssued = false;
+        this.warnings = [];
         let documents: any[] = [];
-        const nullProtoPaths: string[] = [];
 
         let docStrings: string[] = [];
         docStrings = jsonString.split(/\n---+\n|\n{2,}/).map(s => s.trim()).filter(Boolean);
@@ -191,6 +225,9 @@ export class ProtoGenerator {
                 const parsed = JSON.parse(docStr);
                 documents.push(parsed);
             } catch (e: any) {
+                if (e instanceof SyntaxError && e.message.includes('circular')) {
+                    return { proto: 'Error: Circular reference in JSON object.', warnings: [] };
+                }
                 return { proto: `Error: Invalid JSON - ${e.message}`, warnings: [] };
             }
         }
@@ -198,122 +235,13 @@ export class ProtoGenerator {
             return { proto: "Error: No valid JSON documents found.", warnings: [] };
         }
 
-        let fieldValues: Record<string, any[]> = {};
-        for (const doc of documents) {
-            if (Array.isArray(doc)) {
-                for (const item of doc) {
-                    if (typeof item === 'object' && item !== null) {
-                        for (const key of Object.keys(item)) {
-                            if (!fieldValues[key]) fieldValues[key] = [];
-                            fieldValues[key].push(item[key]);
-                        }
-                    }
-                }
-            } else if (typeof doc === 'object' && doc !== null) {
-                for (const key of Object.keys(doc)) {
-                    if (!fieldValues[key]) fieldValues[key] = [];
-                    fieldValues[key].push(doc[key]);
-                }
-            }
-        }
-        if (Object.keys(fieldValues).length === 0) {
-            // Special handling for root primitives, null, empty arrays, mixed arrays, arrays of arrays, and arrays of empty objects
-            const root = documents[0];
-            const packageName = baseMessageName ? toSnakeCase(baseMessageName) : '';
-            const rootMessageName = baseMessageName || 'RootMessage';
-            const header = [
-                'syntax = "proto3";',
-                packageName ? `package ${packageName};` : ''
-            ].filter(Boolean).join('\n');
-            let protoText = '';
-            if (typeof root === 'number') {
-                protoText = `${header}\n\nmessage ${rootMessageName} {\n  int64 value = 1;\n}`;
-            } else if (typeof root === 'string') {
-                protoText = `${header}\n\nmessage ${rootMessageName} {\n  string value = 1;\n}`;
-            } else if (typeof root === 'boolean') {
-                protoText = `${header}\n\nmessage ${rootMessageName} {\n  bool value = 1;\n}`;
-            } else if (root === null) {
-                protoText = `${header}\n\nmessage ${rootMessageName} {\n  google.protobuf.NullValue value = 1;\n}`;
-            } else if (Array.isArray(root)) {
-                if (root.length === 0) {
-                    protoText = `${header}\n\nmessage ${rootMessageName} {\n  repeated google.protobuf.Any value = 1;\n}`;
-                } else if (root.every(item => typeof item === 'object' && item && Object.keys(item).length === 0)) {
-                    // Array of empty objects
-                    protoText = `${header}\n\nmessage ${rootMessageName} {\n}`;
-                } else if (root.every(item => Array.isArray(item))) {
-                    // Arrays of arrays (multi-dimensional)
-                    let subType = 'google.protobuf.Any';
-                    if (root[0].every((el: any) => typeof el === 'number')) subType = 'int64';
-                    else if (root[0].every((el: any) => typeof el === 'string')) subType = 'string';
-                    else if (root[0].every((el: any) => typeof el === 'boolean')) subType = 'bool';
-                    protoText = `${header}\n\nmessage ${rootMessageName} {\n  repeated NestedArray value = 1;\n\n  message NestedArray {\n    repeated ${subType} items = 1;\n  }\n}`;
-                } else {
-                    // Mixed-type array detection
-                    const typeSet = new Set(root.map(item => Array.isArray(item) ? 'array' : typeof item));
-                    if (typeSet.size > 1) {
-                        protoText = `${header}\nimport \"google/protobuf/struct.proto\";\n\nmessage ${rootMessageName} {\n  repeated google.protobuf.Value value = 1;\n}`;
-                    } else {
-                        // Array of primitives or objects
-                        let type = 'google.protobuf.Any';
-                        if (typeof root[0] === 'number') type = 'int64';
-                        else if (typeof root[0] === 'string') type = 'string';
-                        else if (typeof root[0] === 'boolean') type = 'bool';
-                        protoText = `${header}\n\nmessage ${rootMessageName} {\n  repeated ${type} value = 1;\n}`;
-                    }
-                }
-            } else if (typeof root === 'object' && root !== null) {
-                // Deeply nested objects: ensure deepest message is named D if field is d
-                const findDeepest = (obj: any): string | null => {
-                    if (typeof obj === 'object' && obj !== null) {
-                        for (const k in obj) {
-                            if (k === 'd') {
-                                return 'message D {\n  int64 d = 1;\n}';
-                            }
-                            const res = findDeepest(obj[k]);
-                            if (res) return res;
-                        }
-                    }
-                    return null;
-                };
-                const deepest = findDeepest(root);
-                if (deepest) {
-                    protoText = `${header}\n\nmessage ${rootMessageName} {\n  repeated AElement a = 1;\n\n  message AElement {\n    B b = 1;\n\n    message B {\n      C c = 1;\n\n      message C {\n        int64 d = 1;\n      }\n    }\n  }\n}\n${deepest}`;
-                } else {
-                    protoText = `${header}\n\nmessage ${rootMessageName} {\n}`;
-                }
-            } else {
-                // Fallback: empty message
-                protoText = `${header}\n\nmessage ${rootMessageName} {\n}`;
-            }
-            return { proto: protoText, warnings: [] };
-        }
-
-        function findNullProtoPaths(obj: any, protoPath: string[], packageName: string, messageName: string) {
-            if (obj === null) {
-                const fullPath = [packageName, ...protoPath].filter(Boolean).join('.');
-                nullProtoPaths.push(fullPath);
-                return;
-            }
-            if (Array.isArray(obj)) {
-                obj.forEach((item, idx) => findNullProtoPaths(item, [...protoPath, `[${idx}]`], packageName, messageName));
-            } else if (typeof obj === 'object' && obj !== null) {
-                Object.entries(obj).forEach(([key, value]) => {
-                    findNullProtoPaths(value, [...protoPath, key], packageName, messageName);
-                });
-            }
-        }
-
+        const root = documents.length === 1 ? documents[0] : documents;
         const packageName = this.config.packageName !== undefined
-          ? this.config.packageName
-          : (baseMessageName ? toSnakeCase(baseMessageName) : '');
+            ? this.config.packageName
+            : (baseMessageName ? toSnakeCase(baseMessageName) : '');
         const rootMessageName = baseMessageName || 'RootMessage';
-        const mergedExample: Record<string, any> = {};
-        for (const key of Object.keys(fieldValues)) {
-            mergedExample[key] = fieldValues[key][0];
-        }
-        findNullProtoPaths(mergedExample, [rootMessageName], packageName, rootMessageName);
 
-        const topMessage = this.generateMessageDef(fieldValues, rootMessageName);
+        const topMessage = this.generateMessageDef({ [rootMessageName]: root }, rootMessageName);
 
         const header = [
             'syntax = "proto3";',
@@ -322,13 +250,8 @@ export class ProtoGenerator {
         ].filter(Boolean).join('\n');
 
         const protoText = `${header}\n\n${topMessage}`;
-        const warnings: string[] = [];
-        if (nullProtoPaths.length > 0) {
-            warnings.push(
-                `Warning: The type \"NullValue\" was used. This may indicate that the sample data did not include a value for this field.\nAffected proto path(s):\n${nullProtoPaths.map(p => `- ${p}`).join('\n')}`
-            );
-        }
-        return { proto: protoText, warnings };
+
+        return { proto: protoText, warnings: this.warnings! };
     }
 }
 
@@ -508,6 +431,107 @@ export default function App() {
                 </div>
             </main>
             <footer className="text-center py-4 sm:py-6 text-gray-500 text-sm bg-gray-900/80 border-t border-cyan-900 mt-8">
+                <section className="max-w-3xl mx-auto text-left p-6 bg-gray-800 rounded-lg shadow-lg border border-cyan-800">
+                    <h2 className="text-2xl font-bold mb-4 text-cyan-300">How This Works &amp; Important Caveats</h2>
+                    <p className="mb-4">
+                        <strong>json-to-proto</strong> converts JSON objects into Protocol Buffers (<strong>protobuf</strong>) message definitions. It analyzes your JSON, infers types, and generates a <code>.proto</code> schema for serialization and communication.
+                    </p>
+                    <h3 className="text-xl font-semibold mt-6 mb-2 text-cyan-200">How It Works</h3>
+                    <ul className="list-disc ml-6 mb-4">
+                        <li>Parses your JSON and walks through its structure.</li>
+                        <li>Infers protobuf types for each field (e.g., <code>string</code>, <code>int32</code>, <code>bool</code>, <code>repeated</code>, <code>message</code>).</li>
+                        <li>Nested objects become nested messages; arrays become repeated fields.</li>
+                        <li>Outputs a <code>.proto</code> file reflecting your JSON structure.</li>
+                    </ul>
+                    <h3 className="text-xl font-semibold mt-6 mb-2 text-cyan-200">Flaws &amp; Limitations</h3>
+                    <ol className="list-decimal ml-6 mb-4 space-y-2">
+                        <li>
+                            <strong>Dynamic Keys / JSON Maps:</strong> Does not reliably detect when an object should be a protobuf <code>map</code> (dynamic keys).
+                            <br />
+                            <span className="italic">Example:</span> <code>{'{ "user123": { ... }, "user456": { ... } }'}</code> should be <code>map&lt;string, User&gt;</code>, but may generate fixed fields instead.
+                        </li>
+                        <li>
+                            <strong>Type Inference:</strong> Will default to <code>google.protobuf.Value</code> for mixed-type fields (e.g., sometimes string, sometimes number), which can represent any JSON type.
+                        </li>
+                        <li>
+                            <strong>Enum Detection:</strong> Does not auto-detect enums. Fixed string sets are generated as <code>string</code> fields.
+                        </li>
+                        <li>
+                            <strong>Field Numbering:</strong> Field numbers are assigned sequentially and may change across runs.
+                        </li>
+                        <li>
+                            <strong>JSON Number Types:</strong> Only <code>int64</code> is supported for numbers. All JSON numbers will be mapped to <code>int64</code>, which may not match the original type exactly.
+                        </li>
+                    </ol>
+                    <h3 className="text-xl font-semibold mt-6 mb-2 text-cyan-200">Examples</h3>
+                    <div className="mb-4">
+                        <div className="mb-2 font-mono text-cyan-100">Simple Object</div>
+                        <pre className="bg-gray-900 p-3 rounded text-sm overflow-x-auto mb-2">{`Input: {"id": 1, "name": "Alice"}
+Output:
+message Root {
+  int32 id = 1;
+  string name = 2;
+}`}</pre>
+                    </div>
+                    <div className="mb-4">
+                        <div className="mb-2 font-mono text-cyan-100">Nested Object</div>
+                        <pre className="bg-gray-900 p-3 rounded text-sm overflow-x-auto mb-2">{`Input: {"user": { "id": 1, "name": "Bob" }}
+Output:
+message User {
+  int32 id = 1;
+  string name = 2;
+}
+message Root {
+  User user = 1;
+}`}</pre>
+                    </div>
+                    <div className="mb-4">
+                        <div className="mb-2 font-mono text-cyan-100">Array of Objects</div>
+                        <pre className="bg-gray-900 p-3 rounded text-sm overflow-x-auto mb-2">{`Input: {"users": [ { "id": 1 }, { "id": 2 } ]}
+Output:
+message User {
+  int32 id = 1;
+}
+message Root {
+  repeated User users = 1;
+}`}</pre>
+                    </div>
+                    <div className="mb-4">
+                        <div className="mb-2 font-mono text-cyan-100">Dynamic Keys (Map)</div>
+                        <pre className="bg-gray-900 p-3 rounded text-sm overflow-x-auto mb-2">{`Input: {"users": { "alice": { "id": 1 }, "bob": { "id": 2 } }}
+Ideal Output:
+message User {
+  int32 id = 1;
+}
+message Root {
+  map<string, User> users = 1;
+}
+Actual Output:
+message User {
+  int32 id = 1;
+}
+message Users {
+  User alice = 1;
+  User bob = 2;
+}
+message Root {
+  Users users = 1;
+}
+Caveat: You must manually convert to a map if needed.`}</pre>
+                    </div>
+                    <div className="mb-4">
+                        <div className="mb-2 font-mono text-cyan-100">Mixed-Type Array (Unsupported)</div>
+                        <pre className="bg-gray-900 p-3 rounded text-sm overflow-x-auto mb-2">{`Input: {"values": [1, "two", true]}
+Output: Error or incorrect type.
+Caveat: Normalize your array to a single type before conversion.`}</pre>
+                    </div>
+                    <h3 className="text-xl font-semibold mt-6 mb-2 text-cyan-200">Summary</h3>
+                    <ul className="list-disc ml-6 mb-2">
+                        <li>Great for quickly generating <code>.proto</code> files from well-structured, predictable JSON.</li>
+                        <li>Manual review and editing is recommended for complex or dynamic data.</li>
+                        <li>Be aware of the above limitations and adjust your workflow as needed.</li>
+                    </ul>
+                </section>
             </footer>
         </div>
     );
