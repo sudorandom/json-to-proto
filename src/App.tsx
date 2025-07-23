@@ -397,37 +397,41 @@ export default function App() {
                 <h1 className="text-4xl font-extrabold text-center text-cyan-400 drop-shadow-lg tracking-tight">JSON to Protobuf Converter</h1>
             </header>
 
-            <main className="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-8 p-6 relative pb-56">
+            <main className="flex-grow flex flex-col lg:flex-row gap-4 sm:gap-8 p-4 sm:p-6 relative pb-40 sm:pb-56">
                 {/* Input Panel */}
-                <div className="flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-cyan-950 rounded-2xl border border-cyan-900 shadow-2xl z-10 mr-15">
-                    <div className="p-6 border-b border-cyan-900 flex gap-2 items-center">
-                    <label htmlFor="packageName" className="text-base font-semibold text-cyan-300 tracking-wide whitespace-nowrap">
-                        Package Name
-                    </label>
-                    <input
-                        id="packageName"
-                        type="text"
-                        value={packageName}
-                        onChange={(e) => setPackageName(e.target.value)}
-                        placeholder="e.g., my_package"
-                        className="flex-1 bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500"
-                    />
-                </div>
-                <div className="p-6 border-b border-cyan-900 flex gap-2 items-center">
-                    <label htmlFor="baseName" className="text-base font-semibold text-cyan-300 tracking-wide whitespace-nowrap">
-                        Base Message Name
-                    </label>
-                    <input
-                        id="baseName"
-                        type="text"
-                        value={baseName}
-                        onChange={(e) => setBaseName(e.target.value)}
-                        placeholder="e.g., UserProfile"
-                        className="flex-1 bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500"
-                    />
-                </div>
+                <div className="flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-cyan-950 rounded-2xl border border-cyan-900 shadow-2xl z-10 flex-1">
+                    <div className="p-4 sm:p-6 border-b border-cyan-900">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                            <div className="flex flex-col gap-2">
+                                <label htmlFor="packageName" className="text-base font-semibold text-cyan-300 tracking-wide whitespace-nowrap">
+                                    Package Name:
+                                </label>
+                                <input
+                                    id="packageName"
+                                    type="text"
+                                    value={packageName}
+                                    onChange={(e) => setPackageName(e.target.value)}
+                                    placeholder="e.g., my_package"
+                                    className="bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500 w-full"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label htmlFor="baseName" className="text-base font-semibold text-cyan-300 tracking-wide whitespace-nowrap">
+                                    Base Message Name:
+                                </label>
+                                <input
+                                    id="baseName"
+                                    type="text"
+                                    value={baseName}
+                                    onChange={(e) => setBaseName(e.target.value)}
+                                    placeholder="e.g., UserProfile"
+                                    className="bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500 w-full"
+                                />
+                            </div>
+                        </div>
+                    </div>
                     <div className="flex-grow flex flex-col overflow-hidden">
-                        <label htmlFor="jsonInput" className="block text-base font-semibold text-cyan-300 px-6 pt-6 pb-2 tracking-wide">
+                        <label htmlFor="jsonInput" className="block text-base font-semibold text-cyan-300 px-4 sm:px-6 pt-4 sm:pt-6 pb-2 tracking-wide">
                             JSON Input
                         </label>
                          <div className="flex-grow rounded-b-2xl overflow-hidden border-t border-cyan-900 flex flex-col">
@@ -435,13 +439,13 @@ export default function App() {
                                 id="jsonInput"
                                 value={jsonInput}
                                 onChange={e => setJsonInput(e.target.value)}
-                                className="w-full flex-grow bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-4 font-mono text-base focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500 resize-none"
+                                className="w-full flex-grow bg-gray-950 text-cyan-100 border border-cyan-700 rounded-lg p-3 sm:p-4 font-mono text-base focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition placeholder:text-gray-500 resize-none min-h-[220px] sm:min-h-[150px]"
                                 placeholder="Paste or type your JSON here..."
                                 spellCheck={false}
                                 style={{
                                     fontSize: '1rem',
                                     borderRadius: '0.75rem',
-                                    padding: '1rem',
+                                    padding: '0.75rem',
                                     background: 'transparent',
                                 }}
                             />
@@ -449,13 +453,12 @@ export default function App() {
                     </div>
                 </div>
 
-                {/* Center Control */}
-                <div className="flex justify-center items-center lg:absolute lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 z-20 pointer-events-none" style={{paddingBottom: '8rem'}}>
+                {/* Center Control: below input on mobile, between panels on desktop */}
+                <div className="flex justify-center items-center py-6 lg:py-0 lg:flex-col lg:justify-center lg:items-center" style={{minWidth: '220px'}}>
                     <button
                         onClick={handleConvert}
                         disabled={isLoading}
-                        className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-4 px-8 rounded-full transition-all duration-300 ease-in-out transform hover:scale-110 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center gap-3 shadow-xl text-lg tracking-wide pointer-events-auto"
-                        style={{marginBottom: '5rem'}}
+                        className="w-full lg:w-auto bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 sm:py-4 px-6 sm:px-8 rounded-full transition-all duration-300 ease-in-out transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center gap-3 shadow-xl text-lg tracking-wide"
                     >
                         {isLoading ? (
                             <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-white"></div>
@@ -467,13 +470,13 @@ export default function App() {
                 </div>
 
                 {/* Output Panel */}
-                <div className="flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-cyan-950 rounded-2xl border border-cyan-900 shadow-2xl z-10 ml-15">
-                    <div className="p-6 border-b border-cyan-900 flex justify-between items-center">
+                <div className="flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-cyan-950 rounded-2xl border border-cyan-900 shadow-2xl z-10 flex-1">
+                    <div className="p-4 sm:p-6 border-b border-cyan-900 flex flex-col sm:flex-row justify-between items-center gap-2">
                         <h2 className="text-2xl font-bold text-cyan-300 tracking-wide">Protobuf Output</h2>
                         <button
                             onClick={handleCopy}
                             disabled={!protoOutput}
-                            className="bg-cyan-700 hover:bg-cyan-600 text-white font-semibold py-2 px-4 rounded-lg text-base disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition shadow-md"
+                            className="w-full sm:w-auto bg-cyan-700 hover:bg-cyan-600 text-white font-semibold py-2 px-4 rounded-lg text-base disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition shadow-md"
                         >
                            <Copy size={18} />
                            {copySuccess ? 'Copied!' : 'Copy'}
@@ -494,8 +497,8 @@ export default function App() {
                                 background: 'transparent',
                                 fontSize: '1rem',
                                 borderRadius: '0.75rem',
-                                padding: '1rem',
-                                minHeight: '200px',
+                                padding: '0.75rem',
+                                minHeight: '150px',
                             }}
                             showLineNumbers
                         >
@@ -504,7 +507,7 @@ export default function App() {
                     </div>
                 </div>
             </main>
-            <footer className="text-center py-6 text-gray-500 text-sm bg-gray-900/80 border-t border-cyan-900 mt-8">
+            <footer className="text-center py-4 sm:py-6 text-gray-500 text-sm bg-gray-900/80 border-t border-cyan-900 mt-8">
             </footer>
         </div>
     );
