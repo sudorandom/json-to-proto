@@ -54,7 +54,7 @@ describe('ProtoGenerator', () => {
     const input = 'null';
     const gen = new ProtoGenerator();
     const result = gen.generate(input, 'TestMsg');
-    expect(result.proto).toContain('google.protobuf.NullValue');
+    expect(result.proto).toContain('google.protobuf.Value');
   });
 
   it('handles root as empty array', () => {
@@ -85,7 +85,7 @@ describe('ProtoGenerator', () => {
     const input = '{"a": null}\n{"a": null}';
     const gen = new ProtoGenerator();
     const result = gen.generate(input, 'TestMsg');
-    expect(result.proto).toContain('google.protobuf.NullValue a = 1;');
+    expect(result.proto).toContain('  google.protobuf.Value a = 1;');
   });
 
   it('handles fields with only one value type (all booleans)', () => {

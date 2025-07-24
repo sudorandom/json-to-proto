@@ -54,8 +54,8 @@ export class ProtoGenerator {
     }
 
     private getTypeName(value: any): string {
-        if (value === null) return 'null';
-        if (Array.isArray(value)) return 'array'; // Should not happen for actual values, only for type inference
+        if (value === null) return 'null'; // Internal representation
+        if (Array.isArray(value)) return 'array';
         if (typeof value === 'number') {
             if (!Number.isInteger(value)) {
                 this.warnings.push('Warning: JSON number was mapped to float64 (double).');
@@ -77,7 +77,7 @@ export class ProtoGenerator {
 
         const result: Record<string, any> = {};
         const allKeys = new Set(objects.flatMap(o => (typeof o === 'object' && o !== null) ? Object.keys(o) : []));
-        const areObjectsArrays = objects.every(o => Array.isArray(o));
+        const areOriginalObjectsArrays = objects.every(o => Array.isArray(o));
 
         for (const key of allKeys) {
             const valuesForKey: any[] = [];
@@ -108,20 +108,27 @@ export class ProtoGenerator {
                     result[key] = [];
                 }
             } else if (allPrimitives) {
-                const types = new Set(valuesForKey.map(v => this.getTypeName(v)));
-                if (types.size === 1) {
-                    if (areObjectsArrays) {
-                        result[key] = valuesForKey;
-                    } else {
-                        result[key] = valuesForKey[0];
-                    }
-                } else {
-                    // FIX: If types are mixed across documents, it resolves to a *singular* Value.
+                const nonNullValues = valuesForKey.filter(v => v !== null);
+
+                if (nonNullValues.length === 0) {
                     this.imports.add('import "google/protobuf/struct.proto";');
                     result[key] = 'google.protobuf.Value';
+                } else {
+                    const types = new Set(nonNullValues.map(v => this.getTypeName(v)));
+                    if (types.size === 1) {
+                        // If merging an array of arrays, the result is a repeated field.
+                        // If merging an array of objects, the result is a singular field.
+                        if (areOriginalObjectsArrays) {
+                            result[key] = nonNullValues;
+                        } else {
+                            result[key] = nonNullValues[0];
+                        }
+                    } else {
+                        this.imports.add('import "google/protobuf/struct.proto";');
+                        result[key] = 'google.protobuf.Value';
+                    }
                 }
             } else {
-                // FIX: Mixed types (e.g., scalar and object) also resolve to a singular Value.
                 this.imports.add('import "google/protobuf/struct.proto";');
                 result[key] = 'google.protobuf.Value';
             }
@@ -149,31 +156,32 @@ export class ProtoGenerator {
             let protoType: string;
 
             if (isRepeated) {
-                if (value.length === 0) {
-                    this.imports.add('import "google/protobuf/any.proto";');
-                    protoType = 'google.protobuf.Any';
+                const nonNullElements = value.filter((v: any) => v !== null);
+                if (nonNullElements.length === 0) {
+                    this.imports.add('import "google/protobuf/struct.proto";');
+                    protoType = 'google.protobuf.Value';
                 } else {
-                    const elementTypes = new Set(value.map((v: any) => this.getTypeName(v)));
-                    const containsObjects = value.some((v: any) => typeof v === 'object' && v !== null && !Array.isArray(v));
+                    const elementTypes = new Set(nonNullElements.map((v: any) => this.getTypeName(v)));
+                    const containsObjects = nonNullElements.some((v: any) => typeof v === 'object' && !Array.isArray(v));
 
-                    if (elementTypes.size > 1 || (containsObjects && elementTypes.size > 1) || (containsObjects && elementTypes.has('object') && elementTypes.size > 1) ) {
+                    if (elementTypes.size > 1 || (containsObjects && elementTypes.size > 1)) {
                          this.imports.add('import "google/protobuf/struct.proto";');
                          protoType = 'google.protobuf.Value';
                     } else if (containsObjects) {
                          const nestedMessageName = toPascalCase(key);
-                         const mergedObject = this.mergeAll(value);
+                         const mergedObject = this.mergeAll(nonNullElements);
                          nestedMessages.push(this.generateMessageDef(mergedObject, nestedMessageName));
                          protoType = nestedMessageName;
                     } else {
-                         protoType = this.getTypeName(value[0]);
+                         protoType = this.getTypeName(nonNullElements[0]);
                     }
                 }
             } else {
                  const actualValue = value;
-                 if (actualValue === null || actualValue === 'null') {
+                 if (actualValue === 'google.protobuf.Value') {
                     this.imports.add('import "google/protobuf/struct.proto";');
-                    protoType = 'google.protobuf.NullValue';
-                } else if (actualValue === 'google.protobuf.Value') {
+                    protoType = 'google.protobuf.Value';
+                } else if (actualValue === null) {
                     this.imports.add('import "google/protobuf/struct.proto";');
                     protoType = 'google.protobuf.Value';
                 } else if (typeof actualValue === 'object' && !Array.isArray(actualValue)) {
@@ -206,22 +214,9 @@ export class ProtoGenerator {
         let documents: any[] = [];
         const cleanedJsonString = jsonString.trim();
 
-        if (cleanedJsonString === '[]') {
-            const rootMessageName = toPascalCase(baseMessageName) || 'RootMessage';
-            const packageName = this.config.packageName || toSnakeCase(baseMessageName);
-            this.imports.add('import "google/protobuf/any.proto";');
-            const topMessage = `message ${rootMessageName} {\n  repeated google.protobuf.Any value = 1;\n}`;
-            const header = [
-                'syntax = "proto3";',
-                packageName ? `package ${packageName};` : '',
-                ...Array.from(this.imports)
-            ].filter(Boolean).join('\n');
-            return { proto: `${header}\n\n${topMessage}`, warnings: this.warnings };
-        }
-
+        let parsedJson;
         try {
-            const parsedSingle = JSON.parse(cleanedJsonString);
-            documents = Array.isArray(parsedSingle) ? parsedSingle : [parsedSingle];
+            parsedJson = JSON.parse(cleanedJsonString);
         } catch (e) {
             const docStrings = cleanedJsonString.split(/\n---+\n|\n{2,}|(?<=\})\s*\n(?={)/).map(s => s.trim()).filter(Boolean);
             if (docStrings.length > 0) {
@@ -237,23 +232,34 @@ export class ProtoGenerator {
             }
         }
 
-        if (documents.length === 0) {
-            return { proto: 'Error: No valid JSON documents found.', warnings: [] };
+        if (parsedJson !== undefined) {
+             documents = Array.isArray(parsedJson) ? parsedJson : [parsedJson];
         }
 
         const rootMessageName = toPascalCase(baseMessageName) || 'RootMessage';
         const packageName = this.config.packageName || toSnakeCase(baseMessageName);
+        
+        if (Array.isArray(parsedJson) && documents.length === 0) {
+            this.imports.add('import "google/protobuf/any.proto";');
+            const topMessage = `message ${rootMessageName} {\n  repeated google.protobuf.Any value = 1;\n}`;
+             const header = [
+                'syntax = "proto3";',
+                packageName ? `package ${packageName};` : '',
+                ...Array.from(this.imports)
+            ].filter(Boolean).join('\n');
+            return { proto: `${header}\n\n${topMessage}`, warnings: this.warnings };
+        }
+
+
+        if (documents.length === 0) {
+            return { proto: 'Error: No valid JSON documents found.', warnings: [] };
+        }
+
         let merged: any;
         let topMessage: string;
-        let header: string;
         
         const root = documents[0];
         if (documents.length === 1 && (typeof root !== 'object' || root === null || (typeof root === 'object' && Object.keys(root).length === 0))) {
-            header = [
-                'syntax = "proto3";',
-                packageName ? `package ${packageName};` : ''
-            ].filter(Boolean).join('\n');
-
             if (typeof root === 'number') {
                 topMessage = `message ${rootMessageName} {\n  ${this.getTypeName(root)} value = 1;\n}`;
             } else if (typeof root === 'string') {
@@ -262,7 +268,7 @@ export class ProtoGenerator {
                 topMessage = `message ${rootMessageName} {\n  bool value = 1;\n}`;
             } else if (root === null) {
                 this.imports.add('import "google/protobuf/struct.proto";');
-                topMessage = `message ${rootMessageName} {\n  google.protobuf.NullValue value = 1;\n}`;
+                topMessage = `message ${rootMessageName} {\n  google.protobuf.Value value = 1;\n}`;
             } else if (typeof root === 'object' && root !== null && Object.keys(root).length === 0) {
                 topMessage = `message ${rootMessageName} {\n}`;
             } else {
@@ -273,7 +279,7 @@ export class ProtoGenerator {
             topMessage = this.generateMessageDef(merged, rootMessageName);
         }
         
-        header = [
+        const header = [
             'syntax = "proto3";',
             packageName ? `package ${packageName};` : '',
             ...Array.from(this.imports)
@@ -290,11 +296,11 @@ export default function App() {
         "isActive": true,
         "courses": [
             { "courseId": "CS101", "courseName": "Intro to CS" },
-            { "courseId": "MA203", "courseName": "Linear Algebra" }
+            { "courseId": "MA203", "courseName": "Linear Algebra", "credits": null }
         ],
         "metadata": null,
         "login_timestamps": [1679400000, 1679486400],
-        "mixed_data": [1, "test", true, {"key": "value"}]
+        "mixed_data": [1, "test", true, {"key": "value"}, null]
     }, null, 2));
     const [baseName, setBaseName] = useState('UserProfile');
     const [packageName, setPackageName] = useState('my_package');
