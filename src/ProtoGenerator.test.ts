@@ -138,7 +138,7 @@ describe('ProtoGenerator', () => {
     const input = '{"a": 1}\n{"a": "x"}';
     const gen = new ProtoGenerator();
     const result = gen.generate(input, 'TestMsg');
-    expect(result.proto).toContain('repeated google.protobuf.Value a = 1;');
+    expect(result.proto).toContain('  google.protobuf.Value a = 1;');
   });
 
   it('handles fields with special characters in names', () => {
