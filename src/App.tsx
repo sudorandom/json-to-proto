@@ -217,7 +217,7 @@ export class ProtoGenerator {
         let parsedJson;
         try {
             parsedJson = JSON.parse(cleanedJsonString);
-        } catch (e) {
+        } catch (e: any) {
             const docStrings = cleanedJsonString.split(/\n---+\n|\n{2,}|(?<=\})\s*\n(?={)/).map(s => s.trim()).filter(Boolean);
             if (docStrings.length > 0) {
                 try {
@@ -350,7 +350,7 @@ export default function App() {
             document.execCommand('copy');
             setCopySuccess(true);
             setTimeout(() => setCopySuccess(false), 2000);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to copy text: ', err);
         }
         document.body.removeChild(textArea);
