@@ -6,288 +6,9 @@ import protobufLang from 'react-syntax-highlighter/dist/esm/languages/hljs/proto
 SyntaxHighlighter.registerLanguage('json', jsonLang);
 SyntaxHighlighter.registerLanguage('protobuf', protobufLang);
 import { Play, Copy } from 'lucide-react';
+import { generateDescriptorFromJson, generateProto } from './protoDescriptorGenerator';
+import type { Task } from './tasks';
 
-// --- Helper Functions ---
-
-/**
- * Converts a string to PascalCase.
- * e.g., "user_name" -> "UserName"
- */
-const toPascalCase = (s: string): string => {
-    if (!s) return '';
-    return s
-        .replace(/[^a-zA-Z0-9_ ]/g, '') // Sanitize
-        .split(/[_\s]+/)
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join('');
-};
-
-/**
- * Converts a string to snake_case and ensures it's a valid proto field name.
- * e.g., "userName" -> "user_name"
- */
-const toSnakeCase = (s: string): string => {
-    if (!s) return '';
-    const sanitized = s.replace(/[^a-zA-Z0-9]/g, '_');
-    const snake = sanitized
-        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
-        .replace(/([a-z\d])([A-Z])/g, '$1_$2')
-        .toLowerCase();
-    // Cannot start with a number
-    if (snake.match(/^\d/)) {
-        return `_${snake}`;
-    }
-    return snake;
-};
-
-
-// --- Core Conversion Logic ---
-
-export class ProtoGenerator {
-    private messageCache: Map<string, string> = new Map();
-    private warnings: string[] = [];
-    private imports: Set<string> = new Set();
-    private config: { packageName?: string };
-
-    constructor(config: { packageName?: string } = {}) {
-        this.config = config;
-    }
-
-    private getTypeName(value: any): string {
-        if (value === null) return 'null'; // Internal representation
-        if (Array.isArray(value)) return 'array';
-        if (typeof value === 'number') {
-            if (!Number.isInteger(value)) {
-                this.warnings.push('Warning: JSON number was mapped to float64 (double).');
-            }
-            return Number.isInteger(value) ? 'int64' : 'double';
-        }
-        if (typeof value === 'boolean') return 'bool';
-        return typeof value;
-    }
-
-    private mergeAll(objects: any[]): any {
-        if (objects.length === 0) return {};
-        if (objects.length === 1) {
-            if (typeof objects[0] !== 'object' || objects[0] === null || Array.isArray(objects[0])) {
-                return { 'value': objects[0] };
-            }
-            return objects[0];
-        }
-
-        const result: Record<string, any> = {};
-        const allKeys = new Set(objects.flatMap(o => (typeof o === 'object' && o !== null) ? Object.keys(o) : []));
-        const areOriginalObjectsArrays = objects.every(o => Array.isArray(o));
-
-        for (const key of allKeys) {
-            const valuesForKey: any[] = [];
-            for (const obj of objects) {
-                if (typeof obj === 'object' && obj !== null && Object.prototype.hasOwnProperty.call(obj, key)) {
-                    valuesForKey.push(obj[key]);
-                }
-            }
-
-            if (valuesForKey.length === 0) continue;
-
-            const allObjects = valuesForKey.every(v => typeof v === 'object' && v !== null && !Array.isArray(v));
-            const allArrays = valuesForKey.every(v => Array.isArray(v));
-            const allPrimitives = valuesForKey.every(v => typeof v !== 'object' || v === null);
-
-            if (allObjects) {
-                result[key] = this.mergeAll(valuesForKey);
-            } else if (allArrays) {
-                const mergedArrayElements = valuesForKey.flat();
-                if (mergedArrayElements.length > 0) {
-                    const allElementsAreObjects = mergedArrayElements.every(item => typeof item === 'object' && item !== null && !Array.isArray(item));
-                    if (allElementsAreObjects) {
-                        result[key] = [this.mergeAll(mergedArrayElements)];
-                    } else {
-                        result[key] = mergedArrayElements;
-                    }
-                } else {
-                    result[key] = [];
-                }
-            } else if (allPrimitives) {
-                const nonNullValues = valuesForKey.filter(v => v !== null);
-
-                if (nonNullValues.length === 0) {
-                    this.imports.add('import "google/protobuf/struct.proto";');
-                    result[key] = 'google.protobuf.Value';
-                } else {
-                    const types = new Set(nonNullValues.map(v => this.getTypeName(v)));
-                    if (types.size === 1) {
-                        // If merging an array of arrays, the result is a repeated field.
-                        // If merging an array of objects, the result is a singular field.
-                        if (areOriginalObjectsArrays) {
-                            result[key] = nonNullValues;
-                        } else {
-                            result[key] = nonNullValues[0];
-                        }
-                    } else {
-                        this.imports.add('import "google/protobuf/struct.proto";');
-                        result[key] = 'google.protobuf.Value';
-                    }
-                }
-            } else {
-                this.imports.add('import "google/protobuf/struct.proto";');
-                result[key] = 'google.protobuf.Value';
-            }
-        }
-        return result;
-    }
-
-    private generateMessageDef(obj: Record<string, any>, messageName: string): string {
-        const signature = `${messageName}|${JSON.stringify(Object.keys(obj).sort())}`;
-        if (this.messageCache.has(signature)) {
-            return this.messageCache.get(signature)!;
-        }
-
-        const fields: string[] = [];
-        const nestedMessages: string[] = [];
-        let fieldIndex = 1;
-
-        for (const key in obj) {
-            if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
-
-            const fieldName = toSnakeCase(key);
-            const value = obj[key];
-            const isRepeated = Array.isArray(value);
-            
-            let protoType: string;
-
-            if (isRepeated) {
-                const nonNullElements = value.filter((v: any) => v !== null);
-                if (nonNullElements.length === 0) {
-                    this.imports.add('import "google/protobuf/struct.proto";');
-                    protoType = 'google.protobuf.Value';
-                } else {
-                    const elementTypes = new Set(nonNullElements.map((v: any) => this.getTypeName(v)));
-                    const containsObjects = nonNullElements.some((v: any) => typeof v === 'object' && !Array.isArray(v));
-
-                    if (elementTypes.size > 1 || (containsObjects && elementTypes.size > 1)) {
-                         this.imports.add('import "google/protobuf/struct.proto";');
-                         protoType = 'google.protobuf.Value';
-                    } else if (containsObjects) {
-                         const nestedMessageName = toPascalCase(key);
-                         const mergedObject = this.mergeAll(nonNullElements);
-                         nestedMessages.push(this.generateMessageDef(mergedObject, nestedMessageName));
-                         protoType = nestedMessageName;
-                    } else {
-                         protoType = this.getTypeName(nonNullElements[0]);
-                    }
-                }
-            } else {
-                 const actualValue = value;
-                 if (actualValue === 'google.protobuf.Value') {
-                    this.imports.add('import "google/protobuf/struct.proto";');
-                    protoType = 'google.protobuf.Value';
-                } else if (actualValue === null) {
-                    this.imports.add('import "google/protobuf/struct.proto";');
-                    protoType = 'google.protobuf.Value';
-                } else if (typeof actualValue === 'object' && !Array.isArray(actualValue)) {
-                    const nestedMessageName = toPascalCase(key);
-                    nestedMessages.push(this.generateMessageDef(actualValue, nestedMessageName));
-                    protoType = nestedMessageName;
-                } else {
-                    protoType = this.getTypeName(actualValue);
-                }
-            }
-
-            fields.push(`  ${isRepeated ? 'repeated ' : ''}${protoType} ${fieldName} = ${fieldIndex++};`);
-        }
-
-        let messageBody = `message ${messageName} {\n${fields.join('\n')}`;
-        const uniqueNestedMessages = Array.from(new Set(nestedMessages));
-        if (uniqueNestedMessages.length > 0) {
-            messageBody += '\n\n' + uniqueNestedMessages.map(m => m.replace(/^/gm, '  ')).join('\n\n');
-        }
-        messageBody += `\n}`;
-        this.messageCache.set(signature, messageBody);
-        return messageBody;
-    }
-
-    public generate(jsonString: string, baseMessageName: string): { proto: string, warnings: string[] } {
-        this.imports.clear();
-        this.messageCache.clear();
-        this.warnings = [];
-
-        let documents: any[] = [];
-        const cleanedJsonString = jsonString.trim();
-
-        let parsedJson;
-        try {
-            parsedJson = JSON.parse(cleanedJsonString);
-        } catch (e: any) {
-            const docStrings = cleanedJsonString.split(/\n---+\n|\n{2,}|(?<=\})\s*\n(?={)/).map(s => s.trim()).filter(Boolean);
-            if (docStrings.length > 0) {
-                try {
-                    documents = docStrings.map(s => JSON.parse(s));
-                } catch (e2: any) {
-                    return { proto: `Error: Invalid JSON - ${e2.message}`, warnings: [] };
-                }
-            } else {
-                 if (cleanedJsonString) {
-                    return { proto: `Error: Invalid JSON - ${e.message}`, warnings: [] };
-                 }
-            }
-        }
-
-        if (parsedJson !== undefined) {
-             documents = Array.isArray(parsedJson) ? parsedJson : [parsedJson];
-        }
-
-        const rootMessageName = toPascalCase(baseMessageName) || 'RootMessage';
-        const packageName = this.config.packageName || toSnakeCase(baseMessageName);
-        
-        if (Array.isArray(parsedJson) && documents.length === 0) {
-            this.imports.add('import "google/protobuf/any.proto";');
-            const topMessage = `message ${rootMessageName} {\n  repeated google.protobuf.Any value = 1;\n}`;
-             const header = [
-                'syntax = "proto3";',
-                packageName ? `package ${packageName};` : '',
-                ...Array.from(this.imports)
-            ].filter(Boolean).join('\n');
-            return { proto: `${header}\n\n${topMessage}`, warnings: this.warnings };
-        }
-
-
-        if (documents.length === 0) {
-            return { proto: 'Error: No valid JSON documents found.', warnings: [] };
-        }
-
-        let merged: any;
-        let topMessage: string;
-        
-        const root = documents[0];
-        if (documents.length === 1 && (typeof root !== 'object' || root === null || (typeof root === 'object' && Object.keys(root).length === 0))) {
-            if (typeof root === 'number') {
-                topMessage = `message ${rootMessageName} {\n  ${this.getTypeName(root)} value = 1;\n}`;
-            } else if (typeof root === 'string') {
-                topMessage = `message ${rootMessageName} {\n  string value = 1;\n}`;
-            } else if (typeof root === 'boolean') {
-                topMessage = `message ${rootMessageName} {\n  bool value = 1;\n}`;
-            } else if (root === null) {
-                this.imports.add('import "google/protobuf/struct.proto";');
-                topMessage = `message ${rootMessageName} {\n  google.protobuf.Value value = 1;\n}`;
-            } else if (typeof root === 'object' && root !== null && Object.keys(root).length === 0) {
-                topMessage = `message ${rootMessageName} {\n}`;
-            } else {
-                 return { proto: `Error: Unsupported root JSON type: ${typeof root}`, warnings: [] };
-            }
-        } else {
-            merged = this.mergeAll(documents);
-            topMessage = this.generateMessageDef(merged, rootMessageName);
-        }
-        
-        const header = [
-            'syntax = "proto3";',
-            packageName ? `package ${packageName};` : '',
-            ...Array.from(this.imports)
-        ].filter(Boolean).join('\n');
-
-        return { proto: `${header}\n\n${topMessage}`, warnings: this.warnings };
-    }
-}
 
 export default function App() {
     const [jsonInput, setJsonInput] = useState(JSON.stringify({
@@ -305,10 +26,13 @@ export default function App() {
     const [baseName, setBaseName] = useState('UserProfile');
     const [packageName, setPackageName] = useState('my_package');
     const [protoOutput, setProtoOutput] = useState('');
+    const [descriptor, setDescriptor] = useState<any>(null);
     const [warnings, setWarnings] = useState<string[]>([]);
+    const [mapHints] = useState<{ [msg: string]: string[] }>({});
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [copySuccess, setCopySuccess] = useState(false);
+
 
     const handleConvert = useCallback(() => {
         if (!jsonInput.trim()) {
@@ -322,15 +46,19 @@ export default function App() {
 
         setTimeout(() => {
             try {
-                const generator = new ProtoGenerator({ packageName });
-                const resultObj = generator.generate(jsonInput, baseName);
-                if(resultObj.proto.startsWith('Error:')) {
-                    setError(resultObj.proto);
-                    setProtoOutput('');
-                } else {
-                    setProtoOutput(resultObj.proto);
-                    setWarnings(resultObj.warnings);
+                let parsed: any;
+                try {
+                    parsed = JSON.parse(jsonInput);
+                } catch (e: any) {
+                    setError('Error: Invalid JSON - ' + e.message);
+                    setIsLoading(false);
+                    return;
                 }
+                const desc = generateDescriptorFromJson(parsed, { packageName, messageName: baseName, mapHints });
+                setDescriptor(desc);
+                const proto = generateProto(desc);
+                setProtoOutput(proto);
+                setWarnings([]); // Optionally, add warnings if your descriptor logic provides them
             } catch (e: any) {
                 setError(`An unexpected error occurred: ${e.message}`);
                 console.error(e);
@@ -338,7 +66,35 @@ export default function App() {
                 setIsLoading(false);
             }
         }, 500);
-    }, [jsonInput, baseName, packageName]);
+    }, [jsonInput, baseName, packageName, mapHints]);
+
+    // --- Place getMapTasks immediately before return so it's in scope for JSX ---
+    function getMapTasks() {
+        if (!descriptor) return [];
+        const tasks: Task[] = [];
+        const rootMsgName = baseName;
+        const pkg = descriptor.lookup ? descriptor.lookup(packageName) : null;
+        if (!pkg || !pkg.nestedArray) return tasks;
+
+        // Collect all message types (excluding root)
+        const messageTypes = pkg.nestedArray.filter(
+            (n: any) => n instanceof Object && n.name !== rootMsgName && n.fieldsArray
+        );
+
+        // For each message type, find all fields in all messages that reference it
+        for (const msgType of messageTypes) {
+            for (const parentMsg of pkg.nestedArray) {
+                if (!parentMsg.fieldsArray) continue;
+                for (const field of parentMsg.fieldsArray) {
+                    // If the field type matches this message type
+                    if (field.type === msgType.name) {
+                        // Refinement tasks are disabled
+                    }
+                }
+            }
+        }
+        return tasks;
+    }
 
     const handleCopy = () => {
         if (!protoOutput) return;
@@ -445,12 +201,22 @@ export default function App() {
                         {warnings.length > 0 && (
                             <div className="bg-yellow-900/40 text-yellow-200 p-3 text-sm font-mono border-b border-yellow-700">
                                 {warnings.map((w, i) => (
-                                    <div key={i}>{w}</div>
+                                    <div
+                                        key={i}
+                                        className="mb-3 last:mb-0 pb-3 last:pb-0 border-b border-yellow-700 last:border-b-0"
+                                        style={{
+                                            marginBottom: i === warnings.length - 1 ? 0 : '0.75rem',
+                                            paddingBottom: i === warnings.length - 1 ? 0 : '0.75rem',
+                                            borderBottom: i === warnings.length - 1 ? 'none' : '1px solid #b45309'
+                                        }}
+                                    >
+                                        {w}
+                                    </div>
                                 ))}
                             </div>
                         )}
                         <div className="flex-grow overflow-auto bg-gray-950/70 rounded-b-xl border-t border-cyan-800">
-                             <SyntaxHighlighter
+                            <SyntaxHighlighter
                                 language="protobuf"
                                 style={atelierSulphurpoolDark}
                                 customStyle={{
@@ -471,6 +237,21 @@ export default function App() {
                                 {error ? error : (protoOutput || "// Your generated .proto file will appear here")}
                             </SyntaxHighlighter>
                         </div>
+                        {/* Refinement Tasks below the protobuf output */}
+                        {descriptor && getMapTasks().length > 0 && (
+                            <div className="p-4 border-t border-cyan-900 flex flex-wrap gap-2 bg-gray-950/60">
+                                <span className="text-cyan-300 font-semibold mr-2">Refinement Tasks:</span>
+                                {getMapTasks().map((task, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => task.run()}
+                                        className="bg-cyan-800 hover:bg-cyan-600 text-white font-semibold py-1 px-3 rounded-lg text-sm transition shadow-md"
+                                    >
+                                        {task.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </main>

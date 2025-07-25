@@ -1,7 +1,7 @@
-
 packages:
   - src
 
 ignoredBuiltDependencies:
   - '@tailwindcss/oxide'
   - esbuild
+  - protobufjs
