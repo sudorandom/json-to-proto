@@ -155,7 +155,7 @@ export default function App() {
                         <label htmlFor="jsonInput" className="block text-base font-semibold text-cyan-300 pb-2 tracking-wide">
                             JSON Input
                         </label>
-                         <div className="flex-grow rounded-xl overflow-hidden border border-cyan-800 flex flex-col min-h-[250px] lg:min-h-0">
+                         <div className="flex-grow rounded-xl overflow-hidden border border-cyan-800 flex flex-col min-h-[400px] lg:min-h-[400px]">
                             <textarea
                                 id="jsonInput"
                                 value={jsonInput}
@@ -197,7 +197,7 @@ export default function App() {
                            {copySuccess ? 'Copied!' : 'Copy'}
                         </button>
                     </div>
-                    <div className="flex-grow rounded-b-2xl overflow-hidden flex flex-col min-h-[250px] lg:min-h-0">
+                    <div className="flex-grow rounded-b-2xl overflow-hidden flex flex-col min-h-[400px] lg:min-h-0">
                         {warnings.length > 0 && (
                             <div className="bg-yellow-900/40 text-yellow-200 p-3 text-sm font-mono border-b border-yellow-700">
                                 {warnings.map((w, i) => (
@@ -255,6 +255,96 @@ export default function App() {
                     </div>
                 </div>
             </main>
+
+            <footer className="container mx-auto p-6 sm:p-10 text-gray-400">
+                <div className="max-w-5xl mx-auto">
+                    <div className="bg-yellow-900/30 text-yellow-300 p-4 rounded-lg border border-yellow-700/50 mb-10 text-center">
+                        <p className="font-bold text-lg mb-2 text-yellow-200">Disclaimer</p>
+                        <p className="text-yellow-400">
+                            This tool provides a best-effort conversion and should be used as a starting point.
+                            The generated Protobuf schema is based on inference and may require manual adjustments and validation to perfectly match your data model's requirements and edge cases.
+                            Always review the output carefully.
+                        </p>
+                    </div>
+
+                    <h2 className="text-3xl font-bold text-center text-cyan-400 mb-8 tracking-tight">How It Works: JSON to Protobuf Conversion</h2>
+
+                    <div className="space-y-10 bg-gray-900/50 p-6 sm:p-8 rounded-xl border border-cyan-900/50">
+
+                        <section>
+                            <h3 className="text-2xl font-semibold text-cyan-300 mb-4 border-b border-cyan-800 pb-2">General Approach</h3>
+                            <p className="mb-4">
+                                This converter takes your JSON data and intelligently infers a Protobuf schema. It analyzes the fields, their data types, and their structure across one or more JSON documents. The core logic involves:
+                            </p>
+                            <ul className="list-disc list-inside space-y-2 pl-4">
+                                <li>
+                                    <strong>Parsing & Aggregation:</strong> It first parses the input string into JSON objects. If multiple documents are provided (e.g., separated by newlines), it aggregates all of them to build a complete picture of the data structure.
+                                </li>
+                                <li>
+                                    <strong>Field Merging:</strong> For arrays of objects or multiple root-level objects, it merges fields. If a field appears in one object but not another, it's treated as an optional field in the resulting Protobuf message.
+                                </li>
+                                <li>
+                                    <strong>Type Inference:</strong> It determines the most appropriate Protobuf type for each field based on the values seen in the JSON data.
+                                </li>
+                                <li>
+                                    <strong>Recursive Message Generation:</strong> For nested JSON objects, it recursively generates corresponding nested Protobuf <code>message</code> definitions.
+                                </li>
+                                <li>
+                                    <strong>Style Conversion:</strong> Field names are automatically converted to <code>snake_case</code> to adhere to the official Protobuf style guide.
+                                </li>
+                            </ul>
+                        </section>
+
+                        <section>
+                            <h3 className="text-2xl font-semibold text-cyan-300 mb-4 border-b border-cyan-800 pb-2">Type Mapping</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-gray-800/40 p-4 rounded-lg border border-cyan-800/50">
+                                    <h4 className="font-bold text-cyan-200">JSON String</h4>
+                                    <p>Mapped to <a href="https://protobuf.dev/programming-guides/proto3/#scalar" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>string</code></a>.</p>
+                                </div>
+                                <div className="bg-gray-800/40 p-4 rounded-lg border border-cyan-800/50">
+                                    <h4 className="font-bold text-cyan-200">JSON Number</h4>
+                                    <p>Mapped to <a href="https://protobuf.dev/programming-guides/proto3/#scalar" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>int64</code></a> for integers and <code>double</code> for floats. Using <code>int64</code> ensures large numbers are handled safely.</p>
+                                </div>
+                                <div className="bg-gray-800/40 p-4 rounded-lg border border-cyan-800/50">
+                                    <h4 className="font-bold text-cyan-200">JSON Boolean</h4>
+                                    <p>Mapped to <a href="https://protobuf.dev/programming-guides/proto3/#scalar" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>bool</code></a>.</p>
+                                </div>
+                                <div className="bg-gray-800/40 p-4 rounded-lg border border-cyan-800/50">
+                                    <h4 className="font-bold text-cyan-200">JSON Object</h4>
+                                    <p>Mapped to a new nested <a href="https://protobuf.dev/programming-guides/proto3/#message" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>message</code></a> type. The message name is derived from the object's field name.</p>
+                                </div>
+                                <div className="bg-gray-800/40 p-4 rounded-lg border border-cyan-800/50 col-span-1 md:col-span-2">
+                                    <h4 className="font-bold text-cyan-200">JSON Array</h4>
+                                    <p>Mapped to a <a href="https://protobuf.dev/programming-guides/proto3/#specifying-field-rules" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>repeated</code></a> field. The type of the repeated field is inferred from the elements within the array. See Edge Cases for details on mixed-type or empty arrays.</p>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section>
+                            <h3 className="text-2xl font-semibold text-cyan-300 mb-4 border-b border-cyan-800 pb-2">Edge Cases & Special Handling</h3>
+                            <ul className="list-disc list-inside space-y-4 pl-4">
+                                <li>
+                                    <strong>JSON <code>null</code> Values:</strong> In Protobuf, there is no direct equivalent to JSON's <code>null</code>. When a field has a <code>null</code> value, it is treated as if the field is not present. This means the corresponding field in the Protobuf message will be optional and will simply not be set.
+                                </li>
+                                <li>
+                                    <strong>Mixed-Type Arrays:</strong> Protobuf arrays (repeated fields) must contain elements of a single type. If an array with mixed types (e.g., <code>[1, "hello", true]</code>) is detected, the converter uses the special <a href="https://protobuf.dev/reference/protobuf/google.protobuf/#value" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>google.protobuf.Value</code></a> type. This requires adding <code>import "google/protobuf/struct.proto";</code> to your <code>.proto</code> file.
+                                </li>
+                                <li>
+                                    <strong>Empty Arrays:</strong> If an array is empty (<code>[]</code>), its type cannot be inferred. The converter will default to <code>repeated google.protobuf.Value</code> as a safe fallback, allowing any valid JSON value to be added to the list later.
+                                </li>
+                                <li>
+                                    <strong>Empty Objects:</strong> An empty JSON object (<code>{`{}`}</code>) will be mapped to an empty message definition.
+                                </li>
+                                <li>
+                                    <strong>JSON Objects vs. Protobuf Maps:</strong> A JSON object can represent either a structured entity with a fixed set of fields (e.g., <code>{`{"name": "test", "id": 1}`}</code>) or a dictionary with arbitrary keys (e.g., <code>{`{"feature_a": true, "feature_b": false}`}</code>). This converter defaults to inferring a new Protobuf <code>message</code> for every JSON object, as it is the safest and most common representation. A <a href="https://protobuf.dev/programming-guides/proto3/#maps" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>map&lt;key_type, value_type&gt;</code></a> may be more appropriate if your object's keys are arbitrary and all its values share the same data type. Manual refactoring of the generated schema might be needed for these cases.
+                                </li>
+                            </ul>
+                        </section>
+
+                    </div>
+                </div>
+            </footer>
         </div>
     );
 }

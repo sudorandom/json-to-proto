@@ -159,10 +159,17 @@ export function generateDescriptorFromJson(
     let fieldId = 1;
     for (const key of Object.keys(obj)) {
       const fieldType = inferFieldType(obj[key], key, msgName);
+      const snakeKey = toSnakeCase(key);
       const fieldDef: any = { type: fieldType.type, id: fieldId++ };
       if (fieldType.rule) fieldDef.rule = fieldType.rule;
       if (fieldType.keyType) fieldDef.keyType = fieldType.keyType;
-      fields[toSnakeCase(key)] = fieldDef;
+
+      const defaultJsonName = snakeToCamel(snakeKey);
+      if (key !== defaultJsonName) {
+        fieldDef.options = { json_name: key };
+      }
+
+      fields[snakeKey] = fieldDef;
     }
     return { fields };
   }
@@ -262,16 +269,24 @@ function messageToString(msg: protobuf.Type): string {
     lines.push(`message ${msg.name} {`);
     (msg.fieldsArray as protobuf.Field[]).forEach((field: protobuf.Field) => {
     let optionsString = '';
-    if (field.options) {
+    if (field.options && Object.keys(field.options).length > 0) {
         const opts = Object.entries(field.options)
-        .map(([key, value]) => `${key} = ${value}`)
+        .map(([key, value]) => {
+          if (typeof value === 'string') return `${key} = "${value}"`;
+          return `${key} = ${value}`;
+        })
         .join(', ');
         if (opts) {
         optionsString = ` [${opts}]`;
         }
     }
-    const rule = field.repeated ? 'repeated ' : '';
-    lines.push(`  ${rule}${field.type} ${field.name} = ${field.id}${optionsString};`);
+    if (field.map) {
+        const mapField = field as unknown as protobuf.MapField;
+        lines.push(`  map<${mapField.keyType}, ${mapField.type}> ${mapField.name} = ${mapField.id}${optionsString};`);
+    } else {
+        const rule = field.repeated ? 'repeated ' : '';
+        lines.push(`  ${rule}${field.type} ${field.name} = ${field.id}${optionsString};`);
+    }
     });
     lines.push('}', '');
     return lines.join('\n');
@@ -284,4 +299,8 @@ function toSnakeCase(str: string): string {
 
 function toPascalCase(str: string): string {
   return str.replace(/(^|_|\s|-)(\w)/g, (_, __, c) => c ? c.toUpperCase() : '').replace(/\W/g, '');
+}
+
+function snakeToCamel(str: string): string {
+  return str.replace(/_(\w)/g, (_, c) => c.toUpperCase());
 }
