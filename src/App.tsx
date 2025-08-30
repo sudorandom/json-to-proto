@@ -262,8 +262,7 @@ export default function App() {
                         <p className="font-bold text-lg mb-2 text-yellow-200">Disclaimer</p>
                         <p className="text-yellow-400">
                             This tool provides a best-effort conversion and should be used as a starting point.
-                            The generated Protobuf schema is based on inference and may require manual adjustments and validation to perfectly match your data model's requirements and edge cases.
-                            Always review the output carefully.
+                            The generated Protobuf schema is based on inference and may require manual adjustments and validation to perfectly match your data model's requirements and edge cases. Always review the output carefully and remember that this is primarily a learning tool.
                         </p>
                     </div>
 
@@ -304,7 +303,7 @@ export default function App() {
                                 </div>
                                 <div className="bg-gray-800/40 p-4 rounded-lg border border-cyan-800/50">
                                     <h4 className="font-bold text-cyan-200">JSON Number</h4>
-                                    <p>Mapped to <a href="https://protobuf.dev/programming-guides/proto3/#scalar" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>int64</code></a> for integers and <code>double</code> for floats. Using <code>int64</code> ensures large numbers are handled safely.</p>
+                                    <p>Mapped to <a href="https://protobuf.dev/programming-guides/proto3/#scalar" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>int64</code></a> for integers and <a href="https://protobuf.dev/programming-guides/proto3/#scalar" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline"><code>double</code></a> for floats. Using <code>int64</code> and <code>float64</code> ensures large numbers are handled safely.</p>
                                 </div>
                                 <div className="bg-gray-800/40 p-4 rounded-lg border border-cyan-800/50">
                                     <h4 className="font-bold text-cyan-200">JSON Boolean</h4>
