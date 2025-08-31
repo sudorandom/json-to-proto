@@ -1,4 +1,5 @@
 import * as protobuf from 'protobufjs';
+import pluralize from 'pluralize';
 
 // Hardcoded minimal descriptor for the Google Well-Known Types we need.
 // This avoids issues with `protobuf.common()` in certain bundlers.
@@ -116,7 +117,8 @@ export function generateDescriptorFromJson(
         for (const key of allKeys) {
           merged[key] = value.map(obj => obj[key]);
         }
-        const nestedMsgName = toPascalCase(fieldName);
+        const singularFieldName = pluralize.singular(fieldName);
+        const nestedMsgName = toPascalCase(singularFieldName);
         messages[nestedMsgName] = buildMessageDescriptor(merged, nestedMsgName);
         return { type: nestedMsgName, rule: 'repeated' };
       }
@@ -294,7 +296,11 @@ function messageToString(msg: protobuf.Type): string {
 
 
 function toSnakeCase(str: string): string {
-  return str.replace(/([A-Z])/g, '_$1').replace(/[-\s]+/g, '_').replace(/^_+/, '').toLowerCase();
+  return str
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase();
 }
 
 function toPascalCase(str: string): string {

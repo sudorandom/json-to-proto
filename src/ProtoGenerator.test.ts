@@ -260,6 +260,47 @@ describe('Proto Descriptor Generator', () => {
     expect(TestMsg.fields.message.type).toBe('string');
   });
 
+  it('handles all-caps field names correctly', () => {
+    const input = { USERNAME: 'test' };
+    const descriptor = generateDescriptorFromJson(input, { packageName: 'testpkg', messageName: 'TestMsg' });
+    const root = protobuf.Root.fromJSON(descriptor);
+    const TestMsg = root.lookupType('testpkg.TestMsg');
+    expect(TestMsg).toBeDefined();
+    expect(TestMsg.fields.username).toBeDefined();
+    expect(TestMsg.fields.username.type).toBe('string');
+    const protoText = generateProto(root);
+    expect(protoText).toContain('string username = 1 [json_name = "USERNAME"];');
+  });
+
+  it('creates singular message name for repeated object fields', () => {
+    const input = {
+      "courses": [
+        { "courseId": "CS101" },
+        { "courseId": "MA203" }
+      ]
+    };
+    const descriptor = generateDescriptorFromJson(input, { packageName: 'testpkg', messageName: 'UserProfile' });
+    const root = protobuf.Root.fromJSON(descriptor);
+    const UserProfile = root.lookupType('testpkg.UserProfile');
+    const Course = root.lookupType('testpkg.Course');
+
+    expect(UserProfile).toBeDefined();
+    expect(Course).toBeDefined();
+
+    const coursesField = UserProfile.fields.courses;
+    expect(coursesField).toBeDefined();
+    expect(coursesField.repeated).toBe(true);
+    expect(coursesField.type).toBe('Course');
+
+    const courseIdField = Course.fields.course_id;
+    expect(courseIdField).toBeDefined();
+    expect(courseIdField.type).toBe('string');
+    const protoText = generateProto(root);
+    expect(protoText).toContain('message Course {');
+    expect(protoText).toContain('message UserProfile {');
+    expect(protoText).toContain('repeated Course courses = 1;');
+  });
+
   it('handles objects with numeric keys', () => {
     const descriptor = {
       nested: {
