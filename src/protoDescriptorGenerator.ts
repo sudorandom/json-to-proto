@@ -304,7 +304,11 @@ function toSnakeCase(str: string): string {
 }
 
 function toPascalCase(str: string): string {
-  return str.replace(/(^|_|\s|-)(\w)/g, (_, __, c) => c ? c.toUpperCase() : '').replace(/\W/g, '');
+  const pascal = str.replace(/(^|_|\s|-)(\w)/g, (_, __, c) => c ? c.toUpperCase() : '').replace(/\W/g, '');
+  if (/^\d/.test(pascal)) {
+    return `_${pascal}`;
+  }
+  return pascal;
 }
 
 function snakeToCamel(str: string): string {
