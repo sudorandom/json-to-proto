@@ -148,6 +148,27 @@ export function generateDescriptorFromJson(
       case 'number': return { type: Number.isInteger(value) ? 'int64' : 'double' };
       case 'boolean': return { type: 'bool' };
       case 'object': {
+        const keys = Object.keys(value);
+        if (keys.length > 0) {
+            const allKeysAreInts = keys.every(k => /^-?\d+$/.test(k));
+            if (allKeysAreInts) {
+                const values = Object.values(value);
+                const allValuesAreObjects = values.every(v => typeof v === 'object' && v !== null && !Array.isArray(v));
+
+                if (allValuesAreObjects && values.length > 0) {
+                    const firstValueKeys = Object.keys(values[0] as object).sort().join(',');
+                    const allValuesHaveSameShape = values.every(v => Object.keys(v as object).sort().join(',') === firstValueKeys);
+
+                    if (allValuesHaveSameShape) {
+                        const singularFieldName = pluralize.singular(fieldName);
+                        const valueMsgName = toPascalCase(singularFieldName) + 'Value';
+                        messages[valueMsgName] = buildMessageDescriptor(values[0], valueMsgName);
+                        return { type: valueMsgName, keyType: 'sint64', rule: 'map' };
+                    }
+                }
+            }
+        }
+
         const nestedMsgName = toPascalCase(fieldName);
         messages[nestedMsgName] = buildMessageDescriptor(value, nestedMsgName);
         return { type: nestedMsgName };
